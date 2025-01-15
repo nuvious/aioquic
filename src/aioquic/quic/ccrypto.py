@@ -58,8 +58,7 @@ def reconstruct_payload(buffer, invert=False):
     sort_index = 1 if invert else 0
     payload_index = 0 if invert else 1
     payload_chunks = [v[payload_index] for v in sorted(payload_pairs, key=lambda x: x[sort_index])]
-    payload_bytes = b''.join(payload_chunks)
-    return payload_bytes
+    return b''.join(payload_chunks)
 
 
 def try_decrypt(private_key, buffer, raise_on_error=False):
