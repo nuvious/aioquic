@@ -101,7 +101,7 @@ def queue_message(host_ip, payload, queue, public_key, is_public_key=False):
     cid_payloads = []
     if is_public_key:
         # Make the key chunks 160 bits by prepending 128 bit chunks with 32 bits or random data
-        cid_payloads = [get_random_bytes(4) + payload[i:i+16] for i in range(0, len(payload), 16)]    
+        cid_payloads = [payload[i:i+16] + get_random_bytes(4) for i in range(0, len(payload), 16)]    
     elif not is_public_key and not public_key:
         logger.error("RSA key required if sending a message or a file. Received %s", public_key)
         raise ValueError(f"RSA key required by {public_key} was provided.")
