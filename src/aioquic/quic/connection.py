@@ -2014,15 +2014,17 @@ class QuicConnection:
                 if len(peer_meta['buffer']) == RSA_BIT_STRENGTH // 128 + 1:
                     if self._is_client:
                         # The client will have a dummy cid at the start of the buffer
-                        key_bytes = b''.join([v[:16] for v in peer_meta['buffer'][1:]])
+                        key_bytes = ccrypto.reconstruct_payload(peer_meta['buffer'][1:], invert=True)
+                        logger.info("Length Key Bytes: %s", len(key_bytes))
                     else:
                         # The server will have a dummy cid at the end of the buffer
-                        key_bytes = b''.join([v[:16] for v in peer_meta['buffer'][:-1]])
+                        key_bytes = ccrypto.reconstruct_payload(peer_meta['buffer'][:-1], invert=True)
+                        logger.info("Length Key Bytes: %s", len(key_bytes))
+                    logger.info("My Modulus: %s", ccrypto.get_compact_key(peer_meta['private_key']).hex())
+                    logger.info("Peer Modulus: %s", key_bytes.hex())
                     peer_meta['public_key'] = ccrypto.generate_rsa_public_key(key_bytes)
                     peer_meta['buffer'] = []
                     logger.info(f"Received public key from {peer_ip}")
-                    logger.info(f"My Modulus: %s", ccrypto.get_compact_key(peer_meta['private_key']).hex())
-                    logger.info(f"Peer Modulus: %s", ccrypto.get_compact_key(peer_meta['public_key']).hex())
 
             # If we have a public key, try to decrypt the payload
             else:

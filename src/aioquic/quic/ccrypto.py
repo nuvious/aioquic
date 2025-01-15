@@ -41,18 +41,25 @@ def encrypt(public_key, message):
     return iv + encrypted_aes_key + ciphertext
 
 
-def reconstruct_payload(buffer):
+def reconstruct_payload(buffer, invert=False):
     """Reconstructs a buffer by splitting off the prefixes and payloads and re-ordering them
 
     Args:
         buffer (list of bytes): The cid buffer
+        invert (bool): If true, takes the order bytes from the end instead of the beginning of the CID
 
     Returns:
         bytes: The reconstructed encrypted payload
     """
-    payload_pairs = [(v[:4], v[4:]) for v in buffer]
-    payload_chunks = [v[1] for v in sorted(payload_pairs)]
-    return b''.join(payload_chunks)
+    if invert:
+        payload_pairs = [(v[:len(v)-4], v[-4:]) for v in buffer]
+    else:
+        payload_pairs = [(v[:4], v[4:]) for v in buffer]
+    sort_index = 1 if invert else 0
+    payload_index = 0 if invert else 1
+    payload_chunks = [v[payload_index] for v in sorted(payload_pairs, key=lambda x: x[sort_index])]
+    payload_bytes = b''.join(payload_chunks)
+    return payload_bytes
 
 
 def try_decrypt(private_key, buffer, raise_on_error=False):
@@ -100,8 +107,9 @@ def generate_prefixes(n, size=4):
 def queue_message(host_ip, payload, queue, public_key, is_public_key=False):
     cid_payloads = []
     if is_public_key:
-        # Make the key chunks 160 bits by prepending 128 bit chunks with 32 bits or random data
-        cid_payloads = [payload[i:i+16] + get_random_bytes(4) for i in range(0, len(payload), 16)]    
+        # Make the key chunks 160 bits by appending 128 bit chunks with 32 bits of ordered chunks
+        cid_payloads = [payload[i:i+16] for i in range(0, len(payload), 16)]
+        cid_payloads = [v[0] + v[1] for v in zip(cid_payloads, generate_prefixes(len(cid_payloads)))]
     elif not is_public_key and not public_key:
         logger.error("RSA key required if sending a message or a file. Received %s", public_key)
         raise ValueError(f"RSA key required by {public_key} was provided.")
@@ -110,8 +118,8 @@ def queue_message(host_ip, payload, queue, public_key, is_public_key=False):
         cid_payloads = [encrypted_payload[i:i+16] for i in range(0, len(encrypted_payload), 16)]
         # Prepend an ordered, high-entropy prefix of bytes to each packet
         cid_payloads = [v[0] + v[1] for v in zip(generate_prefixes(len(cid_payloads)), cid_payloads)]
-        # We don't want the prefixes to be ordered, so shuffle them out of order intentionally
-        shuffle(cid_payloads) 
+    # We don't want the CIDs to be ordered, so shuffle them out of order intentionally
+    shuffle(cid_payloads) 
 
     for cid in cid_payloads:
         queue.put(cid)
