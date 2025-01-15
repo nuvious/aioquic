@@ -89,11 +89,11 @@ def get_compact_key(rsa_key):
     modulus = rsa_key.n
     return modulus.to_bytes(RSA_BIT_STRENGTH // 8, byteorder=GLOBAL_BYTE_ORDER)
 
-def generate_prefixes(n, size=4):
-    """Generates a list of high-entropy prefixes
+def generate_ordered_bytes(n, size=4):
+    """Generates a list of high-entropy ordered bytes
 
     Args:
-        n (int): number of prefixes to generate
+        n (int): number of ordered bytes to generate
 
     Returns:
         list: A sorted list of 'n' high entropy bytes of length 'size'
@@ -108,7 +108,7 @@ def queue_message(host_ip, payload, queue, public_key, is_public_key=False):
     if is_public_key:
         # Make the key chunks 160 bits by appending 128 bit chunks with 32 bits of ordered chunks
         cid_payloads = [payload[i:i+16] for i in range(0, len(payload), 16)]
-        cid_payloads = [v[0] + v[1] for v in zip(cid_payloads, generate_prefixes(len(cid_payloads)))]
+        cid_payloads = [v[0] + v[1] for v in zip(cid_payloads, generate_ordered_bytes(len(cid_payloads)))]
     elif not is_public_key and not public_key:
         logger.error("RSA key required if sending a message or a file. Received %s", public_key)
         raise ValueError(f"RSA key required by {public_key} was provided.")
@@ -116,7 +116,7 @@ def queue_message(host_ip, payload, queue, public_key, is_public_key=False):
         encrypted_payload = ccrypto.encrypt(public_key, payload)
         cid_payloads = [encrypted_payload[i:i+16] for i in range(0, len(encrypted_payload), 16)]
         # Prepend an ordered, high-entropy prefix of bytes to each packet
-        cid_payloads = [v[0] + v[1] for v in zip(generate_prefixes(len(cid_payloads)), cid_payloads)]
+        cid_payloads = [v[0] + v[1] for v in zip(generate_ordered_bytes(len(cid_payloads)), cid_payloads)]
     # We don't want the CIDs to be ordered, so shuffle them out of order intentionally
     shuffle(cid_payloads) 
 
