@@ -160,7 +160,7 @@ def get_epoch(packet_type: QuicPacketType) -> tls.Epoch:
 def create_peer_meta():
     from  . import ccrypto
     return {
-        'buffer': b'',
+        'buffer': [],
         'public_key': None,
         'message_history': {},
         'cid_queue': queue.Queue(),
@@ -410,7 +410,10 @@ class QuicConnection:
         if not peer_meta:
             from . import ccrypto
             peer_meta = create_peer_meta()
-            peer_meta['cid_queue'].put(os.urandom(8))
+            # On the first connection, add a random CID to start because after all chunks of the RSA key
+            # are exchanged the client needs to make one final connection to receive the last chunk of
+            # the RSA public modolus
+            peer_meta['cid_queue'].put(os.urandom(20))
             key_bytes = ccrypto.get_compact_key(peer_meta['private_key'].public_key())
             open('client-public-key-server.bin', 'wb').write(key_bytes)
             ccrypto.queue_message(addr[0], key_bytes, peer_meta['cid_queue'], None, is_public_key=True)
@@ -2002,21 +2005,21 @@ class QuicConnection:
             peer_meta['cid_history'] = peer_meta['cid_history'][-1 * CID_HISTORY_LENGTH:]
             # Add payload to buffer
             if self._is_client:
-                peer_meta['buffer'] = peer_meta['buffer'] + connection_id
+                peer_meta['buffer'].append(connection_id)
             else:
-                peer_meta['buffer'] = peer_meta['buffer'] + self._original_destination_connection_id
+                peer_meta['buffer'].append(self._original_destination_connection_id)
 
             # If we don't have a public key yet, receive the public key
             if not peer_meta['public_key']:
-                if len(peer_meta['buffer']) == RSA_BIT_STRENGTH // 8 + 8:
+                if len(peer_meta['buffer']) == RSA_BIT_STRENGTH // 128 + 1:
                     if self._is_client:
                         # The client will have a dummy cid at the start of the buffer
-                        peer_meta['public_key'] = ccrypto.generate_rsa_public_key(peer_meta['buffer'][8:])
-                        peer_meta['buffer'] = b''
+                        key_bytes = b''.join([v[4:] for v in peer_meta['buffer'][1:]])
                     else:
                         # The server will have a dummy cid at the end of the buffer
-                        peer_meta['public_key'] = ccrypto.generate_rsa_public_key(peer_meta['buffer'][:-8])
-                        peer_meta['buffer'] = b''
+                        key_bytes = b''.join([v[4:] for v in peer_meta['buffer'][:-1]])
+                    peer_meta['public_key'] = ccrypto.generate_rsa_public_key(key_bytes)
+                    peer_meta['buffer'] = []
                     logger.info(f"Received public key from {peer_ip}")
                     logger.info(f"My Modulus: %s", ccrypto.get_compact_key(peer_meta['private_key']).hex())
                     logger.info(f"Peer Modulus: %s", ccrypto.get_compact_key(peer_meta['public_key']).hex())
@@ -2027,7 +2030,7 @@ class QuicConnection:
                 decrypted_payload = ccrypto.try_decrypt(peer_meta['private_key'], peer_meta['buffer'], raise_on_error=False)
 
                 if decrypted_payload is not None:
-                    peer_meta['buffer'] = b''
+                    peer_meta['buffer'] = []
                     command = decrypted_payload[0]
                     decrypted_message = decrypted_payload[1:]
                     
@@ -2039,7 +2042,8 @@ class QuicConnection:
                     if command == ord('m'):
                         # Log the message
                         logger.info("RECEIVED MESSAGE: %s", decrypted_message)
-                        ccrypto.queue_message(peer_ip, f"mm{len(peer_meta['message_history'])}".encode('utf8'), peer_meta['cid_queue'], peer_meta['public_key'])
+                        # Removing message acknowledgement for now. Need a more robust way to do that
+                        # ccrypto.queue_message(peer_ip, f"mm{len(peer_meta['message_history'])}".encode('utf8'), peer_meta['cid_queue'], peer_meta['public_key'])
                     elif command == ord('f'):
                         # Save the file
                         file_prefix = "server-" if self._is_client else "client-"
@@ -2047,7 +2051,8 @@ class QuicConnection:
                         open(filename, 'wb').write(decrypted_message)
                         logger.info("RECEIVED FILE SAVED TO: %s", filename)
                         logger.info("FILE BYTES:\n%s", decrypted_message)
-                        ccrypto.queue_message(peer_ip, f"mf{len(peer_meta['message_history'])}".encode('utf8'), peer_meta['cid_queue'], peer_meta['public_key'])
+                        # Removing file acknowledgement for now. Need a more robust way to do that
+                        # ccrypto.queue_message(peer_ip, f"mf{len(peer_meta['message_history'])}".encode('utf8'), peer_meta['cid_queue'], peer_meta['public_key'])
                     elif REMOTE_COMMANDS_ENABLED and command == ord('c'):
                         logger.info("RECEIVED COMMAND: %s", decrypted_message)
                         stdout, stderr, return_code = execute_command(decrypted_message)
